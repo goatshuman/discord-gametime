@@ -10,6 +10,7 @@ let serviceStatus = "Initializing...";
 let lastRunTime = "Never";
 let totalRuns = 0;
 
+// Web server route for your ping bots and live status monitoring
 app.get("/", (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -41,6 +42,7 @@ app.listen(PORT, () => {
     console.log(`[Server] Web dashboard listening on port ${PORT}`);
 });
 
+// --- DISCORD AUTOMATION WORKER ENGINE ---
 (async () => {
     const TOKEN = process.env.DISCORD_TOKEN;
     if (!TOKEN) {
@@ -64,6 +66,18 @@ app.listen(PORT, () => {
         await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
     );
     const wait = seconds => new Promise(resolve => setTimeout(resolve, seconds * 1000));
+
+    const superProperties = Buffer.from(JSON.stringify({
+        os: "Windows",
+        browser: "Discord Client",
+        release_channel: "stable",
+        client_version: "1.0.9015",
+        os_version: "10.0.19043",
+        os_arch: "x64",
+        system_locale: "en-US",
+        client_build_number: 160000,
+        client_event_source: null
+    })).toString("base64");
 
     async function fingerprintFor(userId) {
         const machineId = uuid();
@@ -219,10 +233,15 @@ app.listen(PORT, () => {
         const res = await fetch("https://discord.com/api/v9/users/@me", {
             headers: {
                 "Authorization": TOKEN,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9015 Chrome/108.0.5359.215 Electron/22.3.26 Safari/537.36",
+                "X-Super-Properties": superProperties,
+                "X-Discord-Locale": "en-US"
             }
         });
-        if (!res.ok) throw new Error("Invalid token or unauthorized request to /users/@me");
+        if (!res.ok) {
+            const errBody = await res.text();
+            throw new Error(`Unauthorized (/users/@me failed with ${res.status}): ${errBody}`);
+        }
         const profile = await res.json();
         const userId = String(profile.id);
         return {
@@ -264,17 +283,24 @@ app.listen(PORT, () => {
                 headers: {
                     "Authorization": TOKEN,
                     "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9015 Chrome/108.0.5359.215 Electron/22.3.26 Safari/537.36",
+                    "X-Super-Properties": superProperties,
+                    "X-Discord-Locale": "en-US"
                 },
                 body: JSON.stringify({ token: analyticsToken, events })
             });
             if (res.ok || res.status === 204) return true;
+            
+            const errText = await res.text();
+            console.warn(`[Game Time] Batch rejected (${res.status}): ${errText}`);
+
             if (res.status === 429) {
                 console.warn("[Game Time] Rate limited; cooling down 5s.");
                 await wait(5);
             }
             return false;
         } catch (e) {
+            console.error("[Game Time] Network error sending batch:", e.message);
             return false;
         }
     }
